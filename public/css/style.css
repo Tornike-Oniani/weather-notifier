@@ -1,0 +1,10 @@
+body {
+  background-color: darkcyan;
+}
+
+.app {
+  width: 70%;
+  margin: 10% auto;
+  background-color: #ededed;
+  height: 300px;
+}
