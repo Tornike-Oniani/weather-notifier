@@ -60,7 +60,7 @@ app.listen(3000, () => {
 function startMonitoring() {
   const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
 
-  function sendEmail(to) {
+  async function sendEmail(to) {
     const subject = 'Weather response';
     const message = '<h1>Hello world!</h1>';
 
@@ -88,79 +88,49 @@ function startMonitoring() {
 
     const raw = createMessage();
 
-    gmail.users.messages.send(
-      {
-        oauth2Client,
-        userId: 'me',
-        resource: {
-          raw,
-        },
+    await gmail.users.messages.send({
+      userId: 'me',
+      resource: {
+        raw,
       },
-      (err, result) => {
-        if (err) {
-          console.error(err);
-          return;
-        }
-        console.log('Message sent:', result);
-      }
-    );
+    });
   }
 
   // Periodically check for new messages
-  setInterval(() => {
-    gmail.users.messages.list(
-      { userId: 'me', q: 'subject:weather is:unread' },
-      (err, res) => {
-        if (err) {
-          console.error(err);
-          return;
-        }
-        const messages = res.data.messages || [];
+  setInterval(async () => {
+    // Get ids of messages that are unread and contain word 'weather' in their subject
+    const messageIds =
+      (
+        await gmail.users.messages.list({
+          userId: 'me',
+          q: 'subject:weather is:unread',
+        })
+      ).data.messages || [];
 
-        if (messages.length > 0) {
-          for (const message of messages) {
-            gmail.users.messages.get(
-              { userId: 'me', id: message.id },
-              (err, res) => {
-                if (err) {
-                  console.error(err);
-                  return;
-                }
+    // If no messages were found just return
+    if (messageIds.length === 0) {
+      console.log('Nothing found...');
+      return;
+    }
 
-                let from = res.data.payload.headers.find(
-                  (h) => h.name === 'From'
-                ).value;
-                from = from.substring(
-                  from.indexOf('<') + 1,
-                  from.lastIndexOf('>')
-                );
+    // messages.list above only returns ids and threadIds not the whole body, so now we have to get whole messages one by one with their ids
+    let message;
+    for (const messageIdInfo of messageIds) {
+      message = (
+        await gmail.users.messages.get({ userId: 'me', id: messageIdInfo.id })
+      ).data;
 
-                console.log(`
-                From: ${from}\n
-                Snippet: ${res.data.snippet}\n
-                `);
-                gmail.users.messages.modify(
-                  {
-                    userId: 'me',
-                    id: message.id,
-                    resource: {
-                      removeLabelIds: ['UNREAD'],
-                    },
-                  },
-                  (err, res) => {
-                    if (err) {
-                      console.error(err);
-                      return;
-                    }
-                    console.log('Message was marked as read: ', res);
-                  }
-                );
-                sendEmail(from);
-              }
-            );
-          }
-        }
-      }
-    );
+      // From headers extract the email who send the request for weather forecast
+      let from = message.payload.headers.find((h) => h.name === 'From').value;
+      from = from.substring(from.indexOf('<') + 1, from.lastIndexOf('>'));
+
+      // Modify the message status from unread to read
+      await gmail.users.messages.modify({
+        userId: 'me',
+        id: message.id,
+        resource: { removeLabelIds: ['UNREAD'] },
+      });
+      await sendEmail(from);
+    }
   }, 15000); // Check every 15 seconds
 }
